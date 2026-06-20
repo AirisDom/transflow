@@ -4,7 +4,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 
@@ -154,3 +155,16 @@ app = FastAPI()
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/api/transcode", status_code=status.HTTP_202_ACCEPTED)
+async def create_transcode_job(request: TranscodeRequest) -> JSONResponse:
+    job = job_manager.create_job(
+        file_name=request.file_name,
+        target_format=request.target_format,
+        target_resolution=request.target_resolution,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={"job_id": job.job_id},
+    )
