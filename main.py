@@ -1,10 +1,12 @@
+import asyncio
+import random
 import threading
 import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from fastapi import FastAPI, status
+from fastapi import BackgroundTasks, FastAPI, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -149,6 +151,51 @@ class JobStateManager:
 job_manager = JobStateManager()
 
 
+PROCESSING_STEPS = [
+    ("Analyzing metadata", 0, 15),
+    ("Extracting audio", 15, 40),
+    ("Compressing blocks", 40, 85),
+    ("Finalizing container", 85, 100),
+]
+
+
+async def run_transcoding_pipeline(job_id: str) -> None:
+    job = job_manager.get_job(job_id)
+    if job is None:
+        return
+
+    job_manager.update_job(job_id, status=JobState.PROCESSING, progress=0)
+
+    try:
+        for step_name, start_progress, end_progress in PROCESSING_STEPS:
+            job_manager.update_job(
+                job_id, current_step=step_name, progress=start_progress
+            )
+
+            progress_range = end_progress - start_progress
+            increments = random.randint(3, 6)
+
+            for i in range(increments):
+                await asyncio.sleep(random.uniform(0.3, 0.8))
+                current_progress = start_progress + int(
+                    progress_range * (i + 1) / increments
+                )
+                job_manager.update_job(job_id, progress=current_progress)
+
+        job_manager.update_job(
+            job_id,
+            status=JobState.SUCCESS,
+            progress=100,
+            current_step="Complete",
+        )
+    except Exception:
+        job_manager.update_job(
+            job_id,
+            status=JobState.FAILED,
+            current_step="Error during processing",
+        )
+
+
 app = FastAPI()
 
 
@@ -158,12 +205,15 @@ async def health():
 
 
 @app.post("/api/transcode", status_code=status.HTTP_202_ACCEPTED)
-async def create_transcode_job(request: TranscodeRequest) -> JSONResponse:
+async def create_transcode_job(
+    request: TranscodeRequest, background_tasks: BackgroundTasks
+) -> JSONResponse:
     job = job_manager.create_job(
         file_name=request.file_name,
         target_format=request.target_format,
         target_resolution=request.target_resolution,
     )
+    background_tasks.add_task(run_transcoding_pipeline, job.job_id)
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,
         content={"job_id": job.job_id},
