@@ -218,3 +218,21 @@ async def create_transcode_job(
         status_code=status.HTTP_202_ACCEPTED,
         content={"job_id": job.job_id},
     )
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job_status(job_id: str) -> JSONResponse:
+    job = job_manager.get_job(job_id)
+    if job is None:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "Job not found"},
+        )
+    return JSONResponse(
+        content=JobStatus(
+            job_id=job.job_id,
+            status=job.status,
+            progress=job.progress,
+            current_step=job.current_step,
+        ).model_dump()
+    )
