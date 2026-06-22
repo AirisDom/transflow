@@ -326,6 +326,151 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
         </main>
     </div>
+
+    <script>
+        const form = document.getElementById('transcode-form');
+        const jobsContainer = document.getElementById('jobs-container');
+        const noJobsMessage = document.getElementById('no-jobs-message');
+        const submitButton = form.querySelector('button[type="submit"]');
+
+        const activeJobs = new Map();
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-md mb-4';
+            errorDiv.innerHTML = `<strong class="font-semibold">Error:</strong> ${message}`;
+            form.insertBefore(errorDiv, form.firstChild);
+            setTimeout(() => errorDiv.remove(), 5000);
+        }
+
+        function createJobCard(jobId, fileName, targetFormat, targetResolution) {
+            const card = document.createElement('div');
+            card.id = `job-${jobId}`;
+            card.className = 'bg-gray-700/50 border border-gray-600 rounded-lg p-4';
+            card.innerHTML = `
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-200 truncate" title="${fileName}">${fileName}</span>
+                    <span class="job-status px-2 py-1 text-xs font-semibold rounded-full bg-yellow-500/20 text-yellow-400 animate-pulse">PENDING</span>
+                </div>
+                <div class="text-xs text-gray-400 mb-2">
+                    <span class="uppercase">${targetFormat}</span> &middot; ${targetResolution}
+                </div>
+                <div class="text-xs text-gray-400 mb-1">
+                    Job ID: <code class="text-gray-300">${jobId.substring(0, 8)}...</code>
+                </div>
+                <div class="job-step text-sm text-gray-300 mb-2">Queued</div>
+                <div class="w-full bg-gray-600 rounded-full h-2.5 overflow-hidden">
+                    <div class="job-progress bg-indigo-500 h-2.5 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                </div>
+                <div class="job-progress-text text-xs text-gray-400 mt-1 text-right">0%</div>
+            `;
+            return card;
+        }
+
+        function updateJobCard(jobId, data) {
+            const card = document.getElementById(`job-${jobId}`);
+            if (!card) return;
+
+            const statusBadge = card.querySelector('.job-status');
+            const stepText = card.querySelector('.job-step');
+            const progressBar = card.querySelector('.job-progress');
+            const progressText = card.querySelector('.job-progress-text');
+
+            statusBadge.textContent = data.status;
+            stepText.textContent = data.current_step;
+            progressBar.style.width = `${data.progress}%`;
+            progressText.textContent = `${data.progress}%`;
+
+            statusBadge.classList.remove('bg-yellow-500/20', 'text-yellow-400', 'animate-pulse',
+                                         'bg-emerald-500/20', 'text-emerald-400',
+                                         'bg-red-500/20', 'text-red-400');
+
+            if (data.status === 'PROCESSING') {
+                statusBadge.classList.add('bg-yellow-500/20', 'text-yellow-400', 'animate-pulse');
+                progressBar.classList.remove('bg-emerald-500', 'bg-red-500');
+                progressBar.classList.add('bg-indigo-500');
+            } else if (data.status === 'SUCCESS') {
+                statusBadge.classList.add('bg-emerald-500/20', 'text-emerald-400');
+                progressBar.classList.remove('bg-indigo-500', 'bg-red-500');
+                progressBar.classList.add('bg-emerald-500');
+            } else if (data.status === 'FAILED') {
+                statusBadge.classList.add('bg-red-500/20', 'text-red-400');
+                progressBar.classList.remove('bg-indigo-500', 'bg-emerald-500');
+                progressBar.classList.add('bg-red-500');
+            }
+        }
+
+        async function submitJob(formData) {
+            const payload = {
+                file_name: formData.get('file_name'),
+                target_format: formData.get('target_format'),
+                target_resolution: formData.get('target_resolution')
+            };
+
+            const response = await fetch('/api/transcode', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `Request failed with status ${response.status}`);
+            }
+
+            return response.json();
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData(form);
+            const fileName = formData.get('file_name').trim();
+
+            if (!fileName) {
+                showError('Please enter a file name.');
+                return;
+            }
+
+            submitButton.disabled = true;
+            submitButton.innerHTML = `
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Submitting...
+            `;
+
+            try {
+                const result = await submitJob(formData);
+                const jobId = result.job_id;
+
+                if (noJobsMessage) {
+                    noJobsMessage.remove();
+                }
+
+                const card = createJobCard(
+                    jobId,
+                    fileName,
+                    formData.get('target_format'),
+                    formData.get('target_resolution')
+                );
+                jobsContainer.insertBefore(card, jobsContainer.firstChild);
+
+                activeJobs.set(jobId, { fileName });
+
+                form.reset();
+
+            } catch (error) {
+                showError(error.message || 'Failed to submit job. Please try again.');
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Submit Transcode Job';
+            }
+        });
+    </script>
 </body>
 </html>
 """
