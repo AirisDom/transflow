@@ -151,6 +151,52 @@ class JobStateManager:
 job_manager = JobStateManager()
 
 
+class ConnectionManager:
+    def __init__(self) -> None:
+        self._connections: dict[str, list[WebSocket]] = {}
+        self._lock = asyncio.Lock()
+
+    async def connect(self, job_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        async with self._lock:
+            if job_id not in self._connections:
+                self._connections[job_id] = []
+            self._connections[job_id].append(websocket)
+
+    async def disconnect(self, job_id: str, websocket: WebSocket) -> None:
+        async with self._lock:
+            if job_id in self._connections:
+                if websocket in self._connections[job_id]:
+                    self._connections[job_id].remove(websocket)
+                if not self._connections[job_id]:
+                    del self._connections[job_id]
+
+    async def broadcast_to_job(self, job_id: str, message: dict) -> None:
+        async with self._lock:
+            connections = self._connections.get(job_id, []).copy()
+
+        disconnected: list[WebSocket] = []
+        for websocket in connections:
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                disconnected.append(websocket)
+
+        for websocket in disconnected:
+            await self.disconnect(job_id, websocket)
+
+    async def get_connection_count(self, job_id: str) -> int:
+        async with self._lock:
+            return len(self._connections.get(job_id, []))
+
+    async def has_connections(self, job_id: str) -> bool:
+        async with self._lock:
+            return job_id in self._connections and len(self._connections[job_id]) > 0
+
+
+connection_manager = ConnectionManager()
+
+
 PROCESSING_STEPS = [
     ("Analyzing metadata", 0, 15),
     ("Extracting audio", 15, 40),
@@ -245,25 +291,26 @@ async def websocket_progress(websocket: WebSocket, job_id: str):
         await websocket.close(code=4004)
         return
 
-    await websocket.accept()
+    await connection_manager.connect(job_id, websocket)
 
     try:
         while True:
             job = job_manager.get_job(job_id)
             if job is None:
-                await websocket.close(code=4004)
                 break
 
-            await websocket.send_json({
+            message = {
                 "status": job.status.value,
                 "progress": job.progress,
                 "current_step": job.current_step,
-            })
+            }
+            await websocket.send_json(message)
 
             if job.status in (JobState.SUCCESS, JobState.FAILED):
-                await websocket.close(code=1000)
                 break
 
             await asyncio.sleep(0.2)
     except WebSocketDisconnect:
         pass
+    finally:
+        await connection_manager.disconnect(job_id, websocket)
