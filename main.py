@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Optional
 
 from fastapi import BackgroundTasks, FastAPI, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 
@@ -260,6 +260,80 @@ async def run_transcoding_pipeline(job_id: str) -> None:
 
 
 app = FastAPI()
+
+
+HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransFlow - Media Transcoding Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-full bg-gray-900 text-gray-100">
+    <div class="min-h-full">
+        <header class="bg-gray-800 border-b border-gray-700">
+            <div class="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
+                <h1 class="text-2xl font-bold tracking-tight text-white">TransFlow</h1>
+                <p class="text-sm text-gray-400">Asynchronous Media Transcoding Engine</p>
+            </div>
+        </header>
+
+        <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Configuration Desk (Left Column) -->
+                <section class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                    <h2 class="text-lg font-semibold text-white mb-4">Configuration Desk</h2>
+                    <form id="transcode-form" class="space-y-4">
+                        <div>
+                            <label for="file_name" class="block text-sm font-medium text-gray-300 mb-1">File Name</label>
+                            <input type="text" id="file_name" name="file_name"
+                                   class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                   placeholder="video.mp4" required>
+                        </div>
+                        <div>
+                            <label for="target_format" class="block text-sm font-medium text-gray-300 mb-1">Target Format</label>
+                            <select id="target_format" name="target_format"
+                                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                                <option value="mp4">MP4</option>
+                                <option value="webm">WebM</option>
+                                <option value="mp3">MP3</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="target_resolution" class="block text-sm font-medium text-gray-300 mb-1">Target Resolution</label>
+                            <select id="target_resolution" name="target_resolution"
+                                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                                <option value="1080p">1080p</option>
+                                <option value="720p">720p</option>
+                                <option value="480p">480p</option>
+                            </select>
+                        </div>
+                        <button type="submit"
+                                class="w-full py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-800">
+                            Submit Transcode Job
+                        </button>
+                    </form>
+                </section>
+
+                <!-- Live Progress Matrix (Right Column) -->
+                <section class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+                    <h2 class="text-lg font-semibold text-white mb-4">Live Progress Matrix</h2>
+                    <div id="jobs-container" class="space-y-4">
+                        <p class="text-gray-400 text-sm" id="no-jobs-message">No active jobs. Submit a transcode request to begin.</p>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
+"""
+
+
+@app.get("/", response_class=HTMLResponse)
+async def get_dashboard():
+    return HTMLResponse(content=HTML_TEMPLATE, media_type="text/html")
 
 
 @app.get("/health")
