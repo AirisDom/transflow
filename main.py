@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from fastapi import BackgroundTasks, FastAPI, status
+from fastapi import BackgroundTasks, FastAPI, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -236,3 +236,34 @@ async def get_job_status(job_id: str) -> JSONResponse:
             current_step=job.current_step,
         ).model_dump()
     )
+
+
+@app.websocket("/ws/progress/{job_id}")
+async def websocket_progress(websocket: WebSocket, job_id: str):
+    job = job_manager.get_job(job_id)
+    if job is None:
+        await websocket.close(code=4004)
+        return
+
+    await websocket.accept()
+
+    try:
+        while True:
+            job = job_manager.get_job(job_id)
+            if job is None:
+                await websocket.close(code=4004)
+                break
+
+            await websocket.send_json({
+                "status": job.status.value,
+                "progress": job.progress,
+                "current_step": job.current_step,
+            })
+
+            if job.status in (JobState.SUCCESS, JobState.FAILED):
+                await websocket.close(code=1000)
+                break
+
+            await asyncio.sleep(0.2)
+    except WebSocketDisconnect:
+        pass
