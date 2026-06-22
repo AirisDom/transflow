@@ -205,18 +205,32 @@ PROCESSING_STEPS = [
 ]
 
 
+async def broadcast_job_update(job_id: str) -> None:
+    job = job_manager.get_job(job_id)
+    if job is None:
+        return
+    message = {
+        "status": job.status.value,
+        "progress": job.progress,
+        "current_step": job.current_step,
+    }
+    await connection_manager.broadcast_to_job(job_id, message)
+
+
 async def run_transcoding_pipeline(job_id: str) -> None:
     job = job_manager.get_job(job_id)
     if job is None:
         return
 
     job_manager.update_job(job_id, status=JobState.PROCESSING, progress=0)
+    await broadcast_job_update(job_id)
 
     try:
         for step_name, start_progress, end_progress in PROCESSING_STEPS:
             job_manager.update_job(
                 job_id, current_step=step_name, progress=start_progress
             )
+            await broadcast_job_update(job_id)
 
             progress_range = end_progress - start_progress
             increments = random.randint(3, 6)
@@ -227,6 +241,7 @@ async def run_transcoding_pipeline(job_id: str) -> None:
                     progress_range * (i + 1) / increments
                 )
                 job_manager.update_job(job_id, progress=current_progress)
+                await broadcast_job_update(job_id)
 
         job_manager.update_job(
             job_id,
@@ -234,12 +249,14 @@ async def run_transcoding_pipeline(job_id: str) -> None:
             progress=100,
             current_step="Complete",
         )
+        await broadcast_job_update(job_id)
     except Exception:
         job_manager.update_job(
             job_id,
             status=JobState.FAILED,
             current_step="Error during processing",
         )
+        await broadcast_job_update(job_id)
 
 
 app = FastAPI()
@@ -294,22 +311,18 @@ async def websocket_progress(websocket: WebSocket, job_id: str):
     await connection_manager.connect(job_id, websocket)
 
     try:
+        initial_message = {
+            "status": job.status.value,
+            "progress": job.progress,
+            "current_step": job.current_step,
+        }
+        await websocket.send_json(initial_message)
+
+        if job.status in (JobState.SUCCESS, JobState.FAILED):
+            return
+
         while True:
-            job = job_manager.get_job(job_id)
-            if job is None:
-                break
-
-            message = {
-                "status": job.status.value,
-                "progress": job.progress,
-                "current_step": job.current_step,
-            }
-            await websocket.send_json(message)
-
-            if job.status in (JobState.SUCCESS, JobState.FAILED):
-                break
-
-            await asyncio.sleep(0.2)
+            await websocket.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
