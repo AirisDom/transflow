@@ -318,9 +318,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
                 <!-- Live Progress Matrix (Right Column) -->
                 <section class="bg-gray-800 rounded-lg border border-gray-700 p-6">
-                    <h2 class="text-lg font-semibold text-white mb-4">Live Progress Matrix</h2>
-                    <div id="jobs-container" class="space-y-4">
-                        <p class="text-gray-400 text-sm" id="no-jobs-message">No active jobs. Submit a transcode request to begin.</p>
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-semibold text-white">Live Progress Matrix</h2>
+                        <span id="jobs-counter" class="hidden px-2 py-1 text-xs font-medium bg-indigo-500/20 text-indigo-400 rounded-full"></span>
+                    </div>
+                    <div id="jobs-container" class="space-y-3 max-h-[500px] overflow-y-auto">
+                        <div id="no-jobs-message" class="text-center py-8">
+                            <svg class="mx-auto h-12 w-12 text-gray-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 4V2m10 2V2M5 8h14M5 8a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2V10a2 2 0 00-2-2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4m-4 4h4" />
+                            </svg>
+                            <p class="text-gray-400 text-sm">No active jobs</p>
+                            <p class="text-gray-500 text-xs mt-1">Submit a transcode request to begin</p>
+                        </div>
                     </div>
                 </section>
             </div>
@@ -331,9 +340,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const form = document.getElementById('transcode-form');
         const jobsContainer = document.getElementById('jobs-container');
         const noJobsMessage = document.getElementById('no-jobs-message');
+        const jobsCounter = document.getElementById('jobs-counter');
         const submitButton = form.querySelector('button[type="submit"]');
 
         const activeJobs = new Map();
+
+        function updateJobsCounter() {
+            const count = activeJobs.size;
+            if (count > 0) {
+                jobsCounter.textContent = `${count} job${count > 1 ? 's' : ''}`;
+                jobsCounter.classList.remove('hidden');
+            } else {
+                jobsCounter.classList.add('hidden');
+            }
+        }
 
         function showError(message) {
             const errorDiv = document.createElement('div');
@@ -346,23 +366,32 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         function createJobCard(jobId, fileName, targetFormat, targetResolution) {
             const card = document.createElement('div');
             card.id = `job-${jobId}`;
-            card.className = 'bg-gray-700/50 border border-gray-600 rounded-lg p-4';
+            card.className = 'bg-gray-700/50 border border-gray-600 rounded-lg p-4 transition-all duration-200';
             card.innerHTML = `
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-medium text-gray-200 truncate" title="${fileName}">${fileName}</span>
-                    <span class="job-status px-2 py-1 text-xs font-semibold rounded-full bg-yellow-500/20 text-yellow-400 animate-pulse">PENDING</span>
+                <div class="job-header border-b border-gray-600 pb-3 mb-3">
+                    <div class="flex items-center justify-between mb-1">
+                        <h3 class="text-sm font-semibold text-white truncate" title="${fileName}">${fileName}</h3>
+                        <div class="job-status-badge">
+                            <span class="job-status px-2.5 py-1 text-xs font-semibold rounded-full bg-yellow-500/20 text-yellow-400 animate-pulse">PENDING</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs text-gray-400">
+                        <span class="font-mono bg-gray-800 px-2 py-0.5 rounded">${jobId.substring(0, 8)}</span>
+                        <span>&middot;</span>
+                        <span class="uppercase font-medium">${targetFormat}</span>
+                        <span>&middot;</span>
+                        <span>${targetResolution}</span>
+                    </div>
                 </div>
-                <div class="text-xs text-gray-400 mb-2">
-                    <span class="uppercase">${targetFormat}</span> &middot; ${targetResolution}
+                <div class="job-step-container mb-3">
+                    <div class="flex items-center justify-between text-sm mb-1">
+                        <span class="job-step text-gray-300 font-medium">Queued</span>
+                        <span class="job-progress-text text-gray-400">0%</span>
+                    </div>
+                    <div class="job-progress-container w-full bg-gray-600 rounded-full h-3 overflow-hidden">
+                        <div class="job-progress bg-indigo-500 h-3 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                    </div>
                 </div>
-                <div class="text-xs text-gray-400 mb-1">
-                    Job ID: <code class="text-gray-300">${jobId.substring(0, 8)}...</code>
-                </div>
-                <div class="job-step text-sm text-gray-300 mb-2">Queued</div>
-                <div class="w-full bg-gray-600 rounded-full h-2.5 overflow-hidden">
-                    <div class="job-progress bg-indigo-500 h-2.5 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
-                </div>
-                <div class="job-progress-text text-xs text-gray-400 mt-1 text-right">0%</div>
             `;
             return card;
         }
@@ -447,7 +476,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 const result = await submitJob(formData);
                 const jobId = result.job_id;
 
-                if (noJobsMessage) {
+                if (noJobsMessage && noJobsMessage.parentNode) {
                     noJobsMessage.remove();
                 }
 
@@ -460,6 +489,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 jobsContainer.insertBefore(card, jobsContainer.firstChild);
 
                 activeJobs.set(jobId, { fileName });
+                updateJobsCounter();
 
                 form.reset();
 
