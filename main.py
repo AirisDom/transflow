@@ -372,7 +372,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <div class="flex items-center justify-between mb-1">
                         <h3 class="text-sm font-semibold text-white truncate" title="${fileName}">${fileName}</h3>
                         <div class="job-status-badge">
-                            <span class="job-status px-2.5 py-1 text-xs font-semibold rounded-full bg-yellow-500/20 text-yellow-400 animate-pulse">PENDING</span>
+                            <span class="job-status px-2.5 py-1 text-xs font-semibold rounded-full bg-gray-500/20 text-gray-400">PENDING</span>
                         </div>
                     </div>
                     <div class="flex items-center gap-2 text-xs text-gray-400">
@@ -410,22 +410,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             progressBar.style.width = `${data.progress}%`;
             progressText.textContent = `${data.progress}%`;
 
-            statusBadge.classList.remove('bg-yellow-500/20', 'text-yellow-400', 'animate-pulse',
+            statusBadge.classList.remove('bg-gray-500/20', 'text-gray-400',
+                                         'bg-yellow-500/20', 'text-yellow-400', 'animate-pulse',
                                          'bg-emerald-500/20', 'text-emerald-400',
-                                         'bg-red-500/20', 'text-red-400');
+                                         'bg-rose-900/30', 'text-rose-400');
 
-            if (data.status === 'PROCESSING') {
+            if (data.status === 'PENDING') {
+                statusBadge.classList.add('bg-gray-500/20', 'text-gray-400');
+                progressBar.classList.remove('bg-emerald-500', 'bg-rose-600');
+                progressBar.classList.add('bg-indigo-500');
+            } else if (data.status === 'PROCESSING') {
                 statusBadge.classList.add('bg-yellow-500/20', 'text-yellow-400', 'animate-pulse');
-                progressBar.classList.remove('bg-emerald-500', 'bg-red-500');
+                progressBar.classList.remove('bg-emerald-500', 'bg-rose-600');
                 progressBar.classList.add('bg-indigo-500');
             } else if (data.status === 'SUCCESS') {
                 statusBadge.classList.add('bg-emerald-500/20', 'text-emerald-400');
-                progressBar.classList.remove('bg-indigo-500', 'bg-red-500');
+                progressBar.classList.remove('bg-indigo-500', 'bg-rose-600');
                 progressBar.classList.add('bg-emerald-500');
             } else if (data.status === 'FAILED') {
-                statusBadge.classList.add('bg-red-500/20', 'text-red-400');
+                statusBadge.classList.add('bg-rose-900/30', 'text-rose-400');
                 progressBar.classList.remove('bg-indigo-500', 'bg-emerald-500');
-                progressBar.classList.add('bg-red-500');
+                progressBar.classList.add('bg-rose-600');
             }
         }
 
