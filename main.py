@@ -699,6 +699,31 @@ async def create_transcode_job(
     )
 
 
+@app.get("/api/jobs")
+async def list_jobs(status: Optional[JobState] = None) -> JSONResponse:
+    jobs = job_manager.list_jobs()
+    if status is not None:
+        jobs = [job for job in jobs if job.status == status]
+    jobs_sorted = sorted(jobs, key=lambda j: j.created_at, reverse=True)
+    return JSONResponse(
+        content=[
+            {
+                "job_id": job.job_id,
+                "file_name": job.file_name,
+                "target_format": job.target_format.value,
+                "target_resolution": job.target_resolution.value,
+                "status": job.status.value,
+                "progress": job.progress,
+                "current_step": job.current_step,
+                "error_message": job.error_message,
+                "created_at": job.created_at.isoformat(),
+                "updated_at": job.updated_at.isoformat(),
+            }
+            for job in jobs_sorted
+        ]
+    )
+
+
 @app.get("/api/jobs/{job_id}")
 async def get_job_status(job_id: str) -> JSONResponse:
     job = job_manager.get_job(job_id)
