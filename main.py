@@ -452,6 +452,46 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             return response.json();
         }
 
+        function connectWebSocket(jobId) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/progress/${jobId}`;
+            const ws = new WebSocket(wsUrl);
+
+            const jobData = activeJobs.get(jobId);
+            if (jobData) {
+                jobData.ws = ws;
+            }
+
+            ws.onopen = () => {
+                console.log(`WebSocket connected for job ${jobId}`);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    updateJobCard(jobId, data);
+
+                    if (data.status === 'SUCCESS' || data.status === 'FAILED') {
+                        ws.close();
+                    }
+                } catch (err) {
+                    console.error('Failed to parse WebSocket message:', err);
+                }
+            };
+
+            ws.onclose = (event) => {
+                console.log(`WebSocket closed for job ${jobId}`, event.code);
+                const jobData = activeJobs.get(jobId);
+                if (jobData) {
+                    jobData.ws = null;
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error(`WebSocket error for job ${jobId}:`, error);
+            };
+        }
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -488,8 +528,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 );
                 jobsContainer.insertBefore(card, jobsContainer.firstChild);
 
-                activeJobs.set(jobId, { fileName });
+                activeJobs.set(jobId, { fileName, ws: null });
                 updateJobsCounter();
+
+                connectWebSocket(jobId);
 
                 form.reset();
 
