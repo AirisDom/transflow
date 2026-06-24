@@ -370,12 +370,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const jobsCounter = document.getElementById('jobs-counter');
         const submitButton = form.querySelector('button[type="submit"]');
 
-        const activeJobs = new Map();
+        const jobHistory = new Map();
 
         function updateJobsCounter() {
-            const count = activeJobs.size;
-            if (count > 0) {
-                jobsCounter.textContent = `${count} job${count > 1 ? 's' : ''}`;
+            const total = jobHistory.size;
+            const active = Array.from(jobHistory.values()).filter(j => j.status === 'PENDING' || j.status === 'PROCESSING').length;
+            if (total > 0) {
+                if (active > 0) {
+                    jobsCounter.textContent = `${active} active / ${total} total`;
+                } else {
+                    jobsCounter.textContent = `${total} job${total > 1 ? 's' : ''}`;
+                }
                 jobsCounter.classList.remove('hidden');
             } else {
                 jobsCounter.classList.add('hidden');
@@ -390,7 +395,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             setTimeout(() => errorDiv.remove(), 5000);
         }
 
-        function createJobCard(jobId, fileName, targetFormat, targetResolution) {
+        function createJobCard(jobId, fileName, targetFormat, targetResolution, submittedAt) {
             const card = document.createElement('div');
             card.id = `job-${jobId}`;
             card.className = 'bg-gray-700/50 border border-gray-600 rounded-lg p-4 transition-all duration-200';
@@ -418,6 +423,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <div class="job-progress-container w-full bg-gray-600/80 rounded-full h-3 overflow-hidden shadow-inner">
                         <div class="job-progress h-3 rounded-full progress-bar-smooth bg-indigo-500" style="width: 0%"></div>
                     </div>
+                </div>
+                <div class="job-details flex items-center justify-between text-xs text-gray-500 border-t border-gray-600 pt-2 mt-2">
+                    <span class="job-submitted">Submitted: ${submittedAt}</span>
+                    <span class="job-id-full font-mono" title="${jobId}">${jobId}</span>
                 </div>
             `;
             return card;
@@ -457,6 +466,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 statusBadge.classList.add('bg-rose-900/30', 'text-rose-400');
                 progressBar.classList.add('progress-failed');
             }
+
+            const jobData = jobHistory.get(jobId);
+            if (jobData) {
+                jobData.status = data.status;
+                jobData.progress = data.progress;
+                jobData.currentStep = data.current_step;
+            }
+            updateJobsCounter();
         }
 
         async function submitJob(formData) {
@@ -482,12 +499,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             return response.json();
         }
 
+        function formatTimestamp(date) {
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
         function connectWebSocket(jobId) {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws/progress/${jobId}`;
             const ws = new WebSocket(wsUrl);
 
-            const jobData = activeJobs.get(jobId);
+            const jobData = jobHistory.get(jobId);
             if (jobData) {
                 jobData.ws = ws;
             }
@@ -511,7 +532,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
             ws.onclose = (event) => {
                 console.log(`WebSocket closed for job ${jobId}`, event.code);
-                const jobData = activeJobs.get(jobId);
+                const jobData = jobHistory.get(jobId);
                 if (jobData) {
                     jobData.ws = null;
                 }
@@ -545,6 +566,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             try {
                 const result = await submitJob(formData);
                 const jobId = result.job_id;
+                const targetFormat = formData.get('target_format');
+                const targetResolution = formData.get('target_resolution');
+                const submittedAt = new Date();
 
                 if (noJobsMessage && noJobsMessage.parentNode) {
                     noJobsMessage.remove();
@@ -553,12 +577,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 const card = createJobCard(
                     jobId,
                     fileName,
-                    formData.get('target_format'),
-                    formData.get('target_resolution')
+                    targetFormat,
+                    targetResolution,
+                    formatTimestamp(submittedAt)
                 );
                 jobsContainer.insertBefore(card, jobsContainer.firstChild);
 
-                activeJobs.set(jobId, { fileName, ws: null });
+                jobHistory.set(jobId, {
+                    jobId,
+                    fileName,
+                    targetFormat,
+                    targetResolution,
+                    submittedAt,
+                    status: 'PENDING',
+                    progress: 0,
+                    currentStep: 'Queued',
+                    ws: null
+                });
                 updateJobsCounter();
 
                 connectWebSocket(jobId);
