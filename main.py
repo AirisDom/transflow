@@ -34,6 +34,10 @@ class TranscodeRequest(BaseModel):
     file_name: str
     target_format: TargetFormat
     target_resolution: TargetResolution
+    simulate_failure: bool = False
+
+
+FAILURE_PROBABILITY = 0.15
 
 
 class JobStatus(BaseModel):
@@ -41,6 +45,7 @@ class JobStatus(BaseModel):
     status: JobState
     progress: int
     current_step: str
+    error_message: Optional[str] = None
 
 
 class JobData(BaseModel):
@@ -51,6 +56,8 @@ class JobData(BaseModel):
     status: JobState
     progress: int
     current_step: str
+    error_message: Optional[str] = None
+    simulate_failure: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -65,6 +72,7 @@ class JobStateManager:
         file_name: str,
         target_format: TargetFormat,
         target_resolution: TargetResolution,
+        simulate_failure: bool = False,
     ) -> JobData:
         job_id = str(uuid.uuid4())
         now = datetime.utcnow()
@@ -76,6 +84,8 @@ class JobStateManager:
             status=JobState.PENDING,
             progress=0,
             current_step="Queued",
+            error_message=None,
+            simulate_failure=simulate_failure,
             created_at=now,
             updated_at=now,
         )
@@ -127,6 +137,7 @@ class JobStateManager:
         status: Optional[JobState] = None,
         progress: Optional[int] = None,
         current_step: Optional[str] = None,
+        error_message: Optional[str] = None,
     ) -> Optional[JobData]:
         with self._lock:
             job = self._jobs.get(job_id)
@@ -139,6 +150,8 @@ class JobStateManager:
                 updates["progress"] = max(0, min(100, progress))
             if current_step is not None:
                 updates["current_step"] = current_step
+            if error_message is not None:
+                updates["error_message"] = error_message
             updated = job.model_copy(update=updates)
             self._jobs[job_id] = updated
             return updated
@@ -213,8 +226,19 @@ async def broadcast_job_update(job_id: str) -> None:
         "status": job.status.value,
         "progress": job.progress,
         "current_step": job.current_step,
+        "error_message": job.error_message,
     }
     await connection_manager.broadcast_to_job(job_id, message)
+
+
+SIMULATED_ERRORS = [
+    "Codec initialization failed: unsupported format combination",
+    "Memory allocation error during frame processing",
+    "Input stream corrupted at byte offset 0x{:08x}".format(random.randint(0, 0xFFFFFF)),
+    "Hardware encoder unavailable: fallback failed",
+    "Audio sync lost: timestamp discontinuity detected",
+    "Container format mismatch: cannot mux streams",
+]
 
 
 async def run_transcoding_pipeline(job_id: str) -> None:
@@ -222,11 +246,14 @@ async def run_transcoding_pipeline(job_id: str) -> None:
     if job is None:
         return
 
+    should_fail = job.simulate_failure or random.random() < FAILURE_PROBABILITY
+    fail_at_step = random.randint(0, len(PROCESSING_STEPS) - 1) if should_fail else -1
+
     job_manager.update_job(job_id, status=JobState.PROCESSING, progress=0)
     await broadcast_job_update(job_id)
 
     try:
-        for step_name, start_progress, end_progress in PROCESSING_STEPS:
+        for step_index, (step_name, start_progress, end_progress) in enumerate(PROCESSING_STEPS):
             job_manager.update_job(
                 job_id, current_step=step_name, progress=start_progress
             )
@@ -243,6 +270,17 @@ async def run_transcoding_pipeline(job_id: str) -> None:
                 job_manager.update_job(job_id, progress=current_progress)
                 await broadcast_job_update(job_id)
 
+                if should_fail and step_index == fail_at_step and i >= increments // 2:
+                    error_msg = random.choice(SIMULATED_ERRORS)
+                    job_manager.update_job(
+                        job_id,
+                        status=JobState.FAILED,
+                        current_step=f"Failed: {step_name}",
+                        error_message=error_msg,
+                    )
+                    await broadcast_job_update(job_id)
+                    return
+
         job_manager.update_job(
             job_id,
             status=JobState.SUCCESS,
@@ -250,11 +288,12 @@ async def run_transcoding_pipeline(job_id: str) -> None:
             current_step="Complete",
         )
         await broadcast_job_update(job_id)
-    except Exception:
+    except Exception as e:
         job_manager.update_job(
             job_id,
             status=JobState.FAILED,
             current_step="Error during processing",
+            error_message=str(e) or "An unexpected error occurred",
         )
         await broadcast_job_update(job_id)
 
@@ -424,6 +463,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <div class="job-progress h-3 rounded-full progress-bar-smooth bg-indigo-500" style="width: 0%"></div>
                     </div>
                 </div>
+                <div class="job-error-container hidden mt-3 p-3 bg-rose-900/20 border border-rose-800/50 rounded-md">
+                    <div class="flex items-start gap-2">
+                        <svg class="w-4 h-4 text-rose-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span class="job-error-message text-sm text-rose-300"></span>
+                    </div>
+                </div>
                 <div class="job-details flex items-center justify-between text-xs text-gray-500 border-t border-gray-600 pt-2 mt-2">
                     <span class="job-submitted">Submitted: ${submittedAt}</span>
                     <span class="job-id-full font-mono" title="${jobId}">${jobId}</span>
@@ -440,6 +487,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const stepText = card.querySelector('.job-step');
             const progressBar = card.querySelector('.job-progress');
             const progressText = card.querySelector('.job-progress-text');
+            const errorContainer = card.querySelector('.job-error-container');
+            const errorMessage = card.querySelector('.job-error-message');
 
             statusBadge.textContent = data.status;
             stepText.textContent = data.current_step;
@@ -456,15 +505,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             if (data.status === 'PENDING') {
                 statusBadge.classList.add('bg-gray-500/20', 'text-gray-400');
                 progressBar.classList.add('bg-indigo-500');
+                errorContainer.classList.add('hidden');
             } else if (data.status === 'PROCESSING') {
                 statusBadge.classList.add('bg-yellow-500/20', 'text-yellow-400', 'animate-pulse');
                 progressBar.classList.add('progress-processing');
+                errorContainer.classList.add('hidden');
             } else if (data.status === 'SUCCESS') {
                 statusBadge.classList.add('bg-emerald-500/20', 'text-emerald-400');
                 progressBar.classList.add('progress-success');
+                errorContainer.classList.add('hidden');
             } else if (data.status === 'FAILED') {
                 statusBadge.classList.add('bg-rose-900/30', 'text-rose-400');
                 progressBar.classList.add('progress-failed');
+                card.classList.add('border-rose-800/50');
+                if (data.error_message) {
+                    errorMessage.textContent = data.error_message;
+                    errorContainer.classList.remove('hidden');
+                }
             }
 
             const jobData = jobHistory.get(jobId);
@@ -472,6 +529,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 jobData.status = data.status;
                 jobData.progress = data.progress;
                 jobData.currentStep = data.current_step;
+                jobData.errorMessage = data.error_message;
             }
             updateJobsCounter();
         }
@@ -592,6 +650,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     status: 'PENDING',
                     progress: 0,
                     currentStep: 'Queued',
+                    errorMessage: null,
                     ws: null
                 });
                 updateJobsCounter();
@@ -631,6 +690,7 @@ async def create_transcode_job(
         file_name=request.file_name,
         target_format=request.target_format,
         target_resolution=request.target_resolution,
+        simulate_failure=request.simulate_failure,
     )
     background_tasks.add_task(run_transcoding_pipeline, job.job_id)
     return JSONResponse(
@@ -653,6 +713,7 @@ async def get_job_status(job_id: str) -> JSONResponse:
             status=job.status,
             progress=job.progress,
             current_step=job.current_step,
+            error_message=job.error_message,
         ).model_dump()
     )
 
@@ -671,6 +732,7 @@ async def websocket_progress(websocket: WebSocket, job_id: str):
             "status": job.status.value,
             "progress": job.progress,
             "current_step": job.current_step,
+            "error_message": job.error_message,
         }
         await websocket.send_json(initial_message)
 
