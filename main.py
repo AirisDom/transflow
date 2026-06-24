@@ -269,6 +269,33 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TransFlow - Media Transcoding Engine</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes progress-glow {
+            0%, 100% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.6), 0 0 16px rgba(99, 102, 241, 0.3); }
+            50% { box-shadow: 0 0 12px rgba(99, 102, 241, 0.8), 0 0 24px rgba(99, 102, 241, 0.5); }
+        }
+        @keyframes gradient-shift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .progress-processing {
+            background: linear-gradient(90deg, #6366f1, #818cf8, #a5b4fc, #818cf8, #6366f1);
+            background-size: 200% 100%;
+            animation: gradient-shift 2s ease-in-out infinite, progress-glow 1.5s ease-in-out infinite;
+        }
+        .progress-bar-smooth {
+            transition: width 400ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .progress-success {
+            background: linear-gradient(90deg, #10b981, #34d399);
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+        }
+        .progress-failed {
+            background: linear-gradient(90deg, #e11d48, #f43f5e);
+            box-shadow: 0 0 8px rgba(225, 29, 72, 0.4);
+        }
+    </style>
 </head>
 <body class="h-full bg-gray-900 text-gray-100">
     <div class="min-h-full">
@@ -388,8 +415,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <span class="job-step text-gray-300 font-medium">Queued</span>
                         <span class="job-progress-text text-gray-400">0%</span>
                     </div>
-                    <div class="job-progress-container w-full bg-gray-600 rounded-full h-3 overflow-hidden">
-                        <div class="job-progress bg-indigo-500 h-3 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                    <div class="job-progress-container w-full bg-gray-600/80 rounded-full h-3 overflow-hidden shadow-inner">
+                        <div class="job-progress h-3 rounded-full progress-bar-smooth bg-indigo-500" style="width: 0%"></div>
                     </div>
                 </div>
             `;
@@ -415,22 +442,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                          'bg-emerald-500/20', 'text-emerald-400',
                                          'bg-rose-900/30', 'text-rose-400');
 
+            progressBar.classList.remove('bg-indigo-500', 'progress-processing', 'progress-success', 'progress-failed');
+
             if (data.status === 'PENDING') {
                 statusBadge.classList.add('bg-gray-500/20', 'text-gray-400');
-                progressBar.classList.remove('bg-emerald-500', 'bg-rose-600');
                 progressBar.classList.add('bg-indigo-500');
             } else if (data.status === 'PROCESSING') {
                 statusBadge.classList.add('bg-yellow-500/20', 'text-yellow-400', 'animate-pulse');
-                progressBar.classList.remove('bg-emerald-500', 'bg-rose-600');
-                progressBar.classList.add('bg-indigo-500');
+                progressBar.classList.add('progress-processing');
             } else if (data.status === 'SUCCESS') {
                 statusBadge.classList.add('bg-emerald-500/20', 'text-emerald-400');
-                progressBar.classList.remove('bg-indigo-500', 'bg-rose-600');
-                progressBar.classList.add('bg-emerald-500');
+                progressBar.classList.add('progress-success');
             } else if (data.status === 'FAILED') {
                 statusBadge.classList.add('bg-rose-900/30', 'text-rose-400');
-                progressBar.classList.remove('bg-indigo-500', 'bg-emerald-500');
-                progressBar.classList.add('bg-rose-600');
+                progressBar.classList.add('progress-failed');
             }
         }
 
