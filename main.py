@@ -2,7 +2,8 @@ import asyncio
 import random
 import threading
 import uuid
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 
@@ -38,6 +39,8 @@ class TranscodeRequest(BaseModel):
 
 
 FAILURE_PROBABILITY = 0.15
+
+JOB_TTL_SECONDS = 3600
 
 
 class JobStatus(BaseModel):
@@ -159,6 +162,28 @@ class JobStateManager:
     def list_jobs(self) -> list[JobData]:
         with self._lock:
             return list(self._jobs.values())
+
+    def cleanup_expired_jobs(self, ttl_seconds: int = JOB_TTL_SECONDS) -> int:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(seconds=ttl_seconds)
+        expired_ids: list[str] = []
+        with self._lock:
+            for job_id, job in self._jobs.items():
+                if job.status in (JobState.SUCCESS, JobState.FAILED):
+                    if job.updated_at < cutoff:
+                        expired_ids.append(job_id)
+            for job_id in expired_ids:
+                del self._jobs[job_id]
+        return len(expired_ids)
+
+    def get_stats(self) -> dict:
+        with self._lock:
+            total = len(self._jobs)
+            by_status = {}
+            for job in self._jobs.values():
+                status_key = job.status.value
+                by_status[status_key] = by_status.get(status_key, 0) + 1
+            return {"total_jobs": total, "by_status": by_status}
 
 
 job_manager = JobStateManager()
@@ -298,7 +323,32 @@ async def run_transcoding_pipeline(job_id: str) -> None:
         await broadcast_job_update(job_id)
 
 
-app = FastAPI()
+CLEANUP_INTERVAL_SECONDS = 300
+
+_cleanup_task: Optional[asyncio.Task] = None
+
+
+async def periodic_cleanup_task() -> None:
+    while True:
+        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+        removed = job_manager.cleanup_expired_jobs()
+        if removed > 0:
+            print(f"Cleanup: removed {removed} expired job(s)")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _cleanup_task
+    _cleanup_task = asyncio.create_task(periodic_cleanup_task())
+    yield
+    _cleanup_task.cancel()
+    try:
+        await _cleanup_task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -762,6 +812,7 @@ async def create_transcode_job(
 
 @app.get("/api/jobs")
 async def list_jobs(status: Optional[JobState] = None) -> JSONResponse:
+    job_manager.cleanup_expired_jobs()
     jobs = job_manager.list_jobs()
     if status is not None:
         jobs = [job for job in jobs if job.status == status]
