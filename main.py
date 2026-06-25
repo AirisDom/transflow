@@ -601,6 +601,67 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             };
         }
 
+        async function loadExistingJobs() {
+            try {
+                const response = await fetch('/api/jobs');
+                if (!response.ok) {
+                    console.error('Failed to load existing jobs:', response.status);
+                    return;
+                }
+
+                const jobs = await response.json();
+                if (jobs.length === 0) {
+                    return;
+                }
+
+                if (noJobsMessage && noJobsMessage.parentNode) {
+                    noJobsMessage.remove();
+                }
+
+                for (const job of jobs) {
+                    const createdAt = new Date(job.created_at);
+                    const card = createJobCard(
+                        job.job_id,
+                        job.file_name,
+                        job.target_format,
+                        job.target_resolution,
+                        formatTimestamp(createdAt)
+                    );
+                    jobsContainer.appendChild(card);
+
+                    jobHistory.set(job.job_id, {
+                        jobId: job.job_id,
+                        fileName: job.file_name,
+                        targetFormat: job.target_format,
+                        targetResolution: job.target_resolution,
+                        submittedAt: createdAt,
+                        status: job.status,
+                        progress: job.progress,
+                        currentStep: job.current_step,
+                        errorMessage: job.error_message,
+                        ws: null
+                    });
+
+                    updateJobCard(job.job_id, {
+                        status: job.status,
+                        progress: job.progress,
+                        current_step: job.current_step,
+                        error_message: job.error_message
+                    });
+
+                    if (job.status === 'PENDING' || job.status === 'PROCESSING') {
+                        connectWebSocket(job.job_id);
+                    }
+                }
+
+                updateJobsCounter();
+            } catch (error) {
+                console.error('Error loading existing jobs:', error);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', loadExistingJobs);
+
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
