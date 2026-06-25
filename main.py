@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import random
+import sys
 import threading
 import uuid
 from contextlib import asynccontextmanager
@@ -11,6 +13,15 @@ from fastapi import BackgroundTasks, FastAPI, Request, WebSocket, WebSocketDisco
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, field_validator
 from fastapi.exceptions import RequestValidationError
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+
+logger = logging.getLogger("transflow")
 
 
 class TargetFormat(str, Enum):
@@ -117,6 +128,10 @@ class JobStateManager:
         )
         with self._lock:
             self._jobs[job_id] = job
+        logger.info(
+            "Job created: job_id=%s file=%s format=%s resolution=%s",
+            job_id, file_name, target_format.value, target_resolution.value
+        )
         return job
 
     def get_job(self, job_id: str) -> Optional[JobData]:
@@ -197,6 +212,8 @@ class JobStateManager:
                         expired_ids.append(job_id)
             for job_id in expired_ids:
                 del self._jobs[job_id]
+        if expired_ids:
+            logger.info("Cleanup: removed %d expired job(s)", len(expired_ids))
         return len(expired_ids)
 
     def get_stats(self) -> dict:
@@ -223,6 +240,8 @@ class ConnectionManager:
             if job_id not in self._connections:
                 self._connections[job_id] = []
             self._connections[job_id].append(websocket)
+            count = len(self._connections[job_id])
+        logger.info("WebSocket connected: job_id=%s clients=%d", job_id, count)
 
     async def disconnect(self, job_id: str, websocket: WebSocket) -> None:
         async with self._lock:
@@ -231,6 +250,12 @@ class ConnectionManager:
                     self._connections[job_id].remove(websocket)
                 if not self._connections[job_id]:
                     del self._connections[job_id]
+                    remaining = 0
+                else:
+                    remaining = len(self._connections[job_id])
+            else:
+                remaining = 0
+        logger.info("WebSocket disconnected: job_id=%s remaining=%d", job_id, remaining)
 
     async def broadcast_to_job(self, job_id: str, message: dict) -> None:
         async with self._lock:
@@ -240,7 +265,8 @@ class ConnectionManager:
         for websocket in connections:
             try:
                 await websocket.send_json(message)
-            except Exception:
+            except Exception as e:
+                logger.warning("WebSocket send failed: job_id=%s error=%s", job_id, str(e))
                 disconnected.append(websocket)
 
         for websocket in disconnected:
@@ -292,8 +318,10 @@ SIMULATED_ERRORS = [
 async def run_transcoding_pipeline(job_id: str) -> None:
     job = job_manager.get_job(job_id)
     if job is None:
+        logger.warning("Pipeline start failed: job_id=%s not found", job_id)
         return
 
+    logger.info("Pipeline starting: job_id=%s file=%s", job_id, job.file_name)
     should_fail = job.simulate_failure or random.random() < FAILURE_PROBABILITY
     fail_at_step = random.randint(0, len(PROCESSING_STEPS) - 1) if should_fail else -1
 
@@ -302,6 +330,7 @@ async def run_transcoding_pipeline(job_id: str) -> None:
 
     try:
         for step_index, (step_name, start_progress, end_progress) in enumerate(PROCESSING_STEPS):
+            logger.debug("Processing step: job_id=%s step=%s", job_id, step_name)
             job_manager.update_job(
                 job_id, current_step=step_name, progress=start_progress
             )
@@ -320,6 +349,9 @@ async def run_transcoding_pipeline(job_id: str) -> None:
 
                 if should_fail and step_index == fail_at_step and i >= increments // 2:
                     error_msg = random.choice(SIMULATED_ERRORS)
+                    logger.error(
+                        "Job failed: job_id=%s step=%s error=%s", job_id, step_name, error_msg
+                    )
                     job_manager.update_job(
                         job_id,
                         status=JobState.FAILED,
@@ -335,8 +367,10 @@ async def run_transcoding_pipeline(job_id: str) -> None:
             progress=100,
             current_step="Complete",
         )
+        logger.info("Job completed: job_id=%s", job_id)
         await broadcast_job_update(job_id)
     except Exception as e:
+        logger.exception("Job exception: job_id=%s", job_id)
         job_manager.update_job(
             job_id,
             status=JobState.FAILED,
@@ -352,18 +386,19 @@ _cleanup_task: Optional[asyncio.Task] = None
 
 
 async def periodic_cleanup_task() -> None:
+    logger.info("Cleanup task started: interval=%ds ttl=%ds", CLEANUP_INTERVAL_SECONDS, JOB_TTL_SECONDS)
     while True:
         await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
-        removed = job_manager.cleanup_expired_jobs()
-        if removed > 0:
-            print(f"Cleanup: removed {removed} expired job(s)")
+        job_manager.cleanup_expired_jobs()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _cleanup_task
+    logger.info("Application starting")
     _cleanup_task = asyncio.create_task(periodic_cleanup_task())
     yield
+    logger.info("Application shutting down")
     _cleanup_task.cancel()
     try:
         await _cleanup_task
@@ -396,6 +431,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         errors.append({"field": field, "message": msg})
 
     first_error = errors[0]['message'] if errors else 'Validation failed'
+    logger.warning("Validation error: %s errors=%s", first_error, errors)
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
@@ -952,6 +988,7 @@ async def list_jobs(status: Optional[JobState] = None) -> JSONResponse:
 async def get_job(job_id: str) -> JSONResponse:
     job = job_manager.get_job(job_id)
     if job is None:
+        logger.debug("Job not found: job_id=%s", job_id)
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"detail": "Job not found"},
@@ -976,6 +1013,7 @@ async def get_job(job_id: str) -> JSONResponse:
 async def websocket_progress(websocket: WebSocket, job_id: str):
     job = job_manager.get_job(job_id)
     if job is None:
+        logger.warning("WebSocket rejected: job_id=%s not found", job_id)
         await websocket.close(code=4004)
         return
 
