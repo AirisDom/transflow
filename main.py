@@ -7,9 +7,10 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 
-from fastapi import BackgroundTasks, FastAPI, WebSocket, WebSocketDisconnect, status
+from fastapi import BackgroundTasks, FastAPI, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+from fastapi.exceptions import RequestValidationError
 
 
 class TargetFormat(str, Enum):
@@ -31,11 +32,33 @@ class JobState(str, Enum):
     FAILED = "FAILED"
 
 
+MAX_FILENAME_LENGTH = 255
+ALLOWED_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm', '.mp3', '.wav', '.aac', '.ogg', '.m4a'}
+
+
 class TranscodeRequest(BaseModel):
     file_name: str
     target_format: TargetFormat
     target_resolution: TargetResolution
     simulate_failure: bool = False
+
+    @field_validator('file_name')
+    @classmethod
+    def validate_file_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError('File name cannot be empty')
+        if len(v) > MAX_FILENAME_LENGTH:
+            raise ValueError(f'File name cannot exceed {MAX_FILENAME_LENGTH} characters')
+        if '/' in v or '\\' in v:
+            raise ValueError('File name cannot contain path separators')
+        forbidden_chars = '<>:"|?*'
+        for char in forbidden_chars:
+            if char in v:
+                raise ValueError(f'File name contains invalid character: {char}')
+        if v.startswith('.'):
+            raise ValueError('File name cannot start with a dot')
+        return v
 
 
 FAILURE_PROBABILITY = 0.15
@@ -351,6 +374,37 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+class ValidationErrorDetail(BaseModel):
+    field: str
+    message: str
+
+
+class ValidationErrorResponse(BaseModel):
+    detail: str
+    errors: list[ValidationErrorDetail]
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = []
+    for error in exc.errors():
+        loc = error.get('loc', [])
+        field = '.'.join(str(l) for l in loc if l != 'body')
+        msg = error.get('msg', 'Invalid value')
+        if msg.startswith('Value error, '):
+            msg = msg[13:]
+        errors.append({"field": field, "message": msg})
+
+    first_error = errors[0]['message'] if errors else 'Validation failed'
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": first_error,
+            "errors": errors
+        }
+    )
+
+
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en" class="h-full">
 <head>
@@ -476,12 +530,54 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        function showError(message) {
+        function clearFieldErrors() {
+            document.querySelectorAll('.field-error').forEach(el => el.remove());
+            document.querySelectorAll('.field-error-border').forEach(el => {
+                el.classList.remove('field-error-border', 'border-red-500', 'ring-1', 'ring-red-500');
+            });
+        }
+
+        function showFieldError(field, message) {
+            const input = document.getElementById(field);
+            if (!input) return;
+            input.classList.add('field-error-border', 'border-red-500', 'ring-1', 'ring-red-500');
+            const errorSpan = document.createElement('span');
+            errorSpan.className = 'field-error text-red-400 text-xs mt-1 block';
+            errorSpan.textContent = message;
+            input.parentNode.appendChild(errorSpan);
+        }
+
+        function showError(message, errors = null) {
+            clearFieldErrors();
+            const existingAlerts = form.querySelectorAll('.error-alert');
+            existingAlerts.forEach(el => el.remove());
+
             const errorDiv = document.createElement('div');
-            errorDiv.className = 'bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-md mb-4';
-            errorDiv.innerHTML = `<strong class="font-semibold">Error:</strong> ${message}`;
+            errorDiv.className = 'error-alert bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-md mb-4';
+
+            let html = `<div class="flex items-start gap-2">
+                <svg class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                    <strong class="font-semibold">Validation Error</strong>
+                    <p class="text-sm mt-1">${message}</p>`;
+
+            if (errors && errors.length > 1) {
+                html += '<ul class="list-disc list-inside text-sm mt-2 space-y-1">';
+                errors.forEach(err => {
+                    html += `<li><span class="text-red-300">${err.field}:</span> ${err.message}</li>`;
+                    showFieldError(err.field, err.message);
+                });
+                html += '</ul>';
+            } else if (errors && errors.length === 1) {
+                showFieldError(errors[0].field, errors[0].message);
+            }
+
+            html += '</div></div>';
+            errorDiv.innerHTML = html;
             form.insertBefore(errorDiv, form.firstChild);
-            setTimeout(() => errorDiv.remove(), 5000);
+            setTimeout(() => errorDiv.remove(), 8000);
         }
 
         function createJobCard(jobId, fileName, targetFormat, targetResolution, submittedAt) {
@@ -584,6 +680,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             updateJobsCounter();
         }
 
+        class ValidationError extends Error {
+            constructor(message, errors) {
+                super(message);
+                this.name = 'ValidationError';
+                this.errors = errors;
+            }
+        }
+
         async function submitJob(formData) {
             const payload = {
                 file_name: formData.get('file_name'),
@@ -601,6 +705,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
+                if (response.status === 422 && errorData.errors) {
+                    throw new ValidationError(errorData.detail, errorData.errors);
+                }
                 throw new Error(errorData.detail || `Request failed with status ${response.status}`);
             }
 
@@ -714,12 +821,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
+            clearFieldErrors();
 
             const formData = new FormData(form);
             const fileName = formData.get('file_name').trim();
 
             if (!fileName) {
-                showError('Please enter a file name.');
+                showError('File name cannot be empty', [{field: 'file_name', message: 'File name cannot be empty'}]);
                 return;
             }
 
@@ -771,7 +879,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 form.reset();
 
             } catch (error) {
-                showError(error.message || 'Failed to submit job. Please try again.');
+                if (error instanceof ValidationError) {
+                    showError(error.message, error.errors);
+                } else {
+                    showError(error.message || 'Failed to submit job. Please try again.');
+                }
             } finally {
                 submitButton.disabled = false;
                 submitButton.textContent = 'Submit Transcode Job';
