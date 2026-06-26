@@ -448,6 +448,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TransFlow - Media Transcoding Engine</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            200: '#c7d2fe',
+                            300: '#a5b4fc',
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            800: '#3730a3',
+                            900: '#312e81',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <style>
         @keyframes progress-glow {
             0%, 100% { box-shadow: 0 0 8px rgba(99, 102, 241, 0.6), 0 0 16px rgba(99, 102, 241, 0.3); }
@@ -457,6 +479,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             0% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
+        }
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slide-in {
+            from { opacity: 0; transform: translateX(-12px); }
+            to { opacity: 1; transform: translateX(0); }
         }
         .progress-processing {
             background: linear-gradient(90deg, #6366f1, #818cf8, #a5b4fc, #818cf8, #6366f1);
@@ -474,72 +504,142 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             background: linear-gradient(90deg, #e11d48, #f43f5e);
             box-shadow: 0 0 8px rgba(225, 29, 72, 0.4);
         }
+        .job-card-enter {
+            animation: fade-in 0.3s ease-out;
+        }
+        .input-focus-ring {
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .input-focus-ring:hover:not(:focus) {
+            border-color: #4b5563;
+        }
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: #1f2937;
+            border-radius: 3px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 3px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
     </style>
 </head>
-<body class="h-full bg-gray-900 text-gray-100">
-    <div class="min-h-full">
-        <header class="bg-gray-800 border-b border-gray-700">
+<body class="h-full bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 text-gray-100 antialiased">
+    <div class="min-h-full flex flex-col">
+        <header class="bg-gray-800/80 backdrop-blur-sm border-b border-gray-700/50 sticky top-0 z-10">
             <div class="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-                <h1 class="text-2xl font-bold tracking-tight text-white">TransFlow</h1>
-                <p class="text-sm text-gray-400">Asynchronous Media Transcoding Engine</p>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 shadow-lg shadow-brand-500/25">
+                            <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white">TransFlow</h1>
+                            <p class="text-xs sm:text-sm text-gray-400 hidden sm:block">Asynchronous Media Transcoding Engine</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
+                            Online
+                        </span>
+                    </div>
+                </div>
             </div>
         </header>
 
-        <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <main class="flex-1 mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
                 <!-- Configuration Desk (Left Column) -->
-                <section class="bg-gray-800 rounded-lg border border-gray-700 p-6">
-                    <h2 class="text-lg font-semibold text-white mb-4">Configuration Desk</h2>
-                    <form id="transcode-form" class="space-y-4">
-                        <div>
-                            <label for="file_name" class="block text-sm font-medium text-gray-300 mb-1">File Name</label>
+                <section class="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 p-5 sm:p-6 shadow-xl shadow-black/10 order-2 lg:order-1">
+                    <div class="flex items-center gap-2 mb-5 sm:mb-6">
+                        <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-brand-500/10">
+                            <svg class="w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                        </div>
+                        <h2 class="text-base sm:text-lg font-semibold text-white">Configuration Desk</h2>
+                    </div>
+                    <form id="transcode-form" class="space-y-5">
+                        <div class="space-y-1.5">
+                            <label for="file_name" class="block text-sm font-medium text-gray-300">File Name</label>
                             <input type="text" id="file_name" name="file_name"
-                                   class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                   class="w-full px-4 py-2.5 bg-gray-900/50 border border-gray-600/50 rounded-xl text-gray-100 placeholder-gray-500 input-focus-ring focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 text-sm sm:text-base"
                                    placeholder="video.mp4" required>
                         </div>
-                        <div>
-                            <label for="target_format" class="block text-sm font-medium text-gray-300 mb-1">Target Format</label>
-                            <select id="target_format" name="target_format"
-                                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                                <option value="mp4">MP4</option>
-                                <option value="webm">WebM</option>
-                                <option value="mp3">MP3</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="target_resolution" class="block text-sm font-medium text-gray-300 mb-1">Target Resolution</label>
-                            <select id="target_resolution" name="target_resolution"
-                                    class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                                <option value="1080p">1080p</option>
-                                <option value="720p">720p</option>
-                                <option value="480p">480p</option>
-                            </select>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div class="space-y-1.5">
+                                <label for="target_format" class="block text-sm font-medium text-gray-300">Target Format</label>
+                                <select id="target_format" name="target_format"
+                                        class="w-full px-4 py-2.5 bg-gray-900/50 border border-gray-600/50 rounded-xl text-gray-100 input-focus-ring focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 cursor-pointer text-sm sm:text-base">
+                                    <option value="mp4">MP4</option>
+                                    <option value="webm">WebM</option>
+                                    <option value="mp3">MP3</option>
+                                </select>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label for="target_resolution" class="block text-sm font-medium text-gray-300">Target Resolution</label>
+                                <select id="target_resolution" name="target_resolution"
+                                        class="w-full px-4 py-2.5 bg-gray-900/50 border border-gray-600/50 rounded-xl text-gray-100 input-focus-ring focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 cursor-pointer text-sm sm:text-base">
+                                    <option value="1080p">1080p (Full HD)</option>
+                                    <option value="720p">720p (HD)</option>
+                                    <option value="480p">480p (SD)</option>
+                                </select>
+                            </div>
                         </div>
                         <button type="submit"
-                                class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-lg rounded-lg shadow-lg shadow-indigo-500/30 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-800 transform hover:scale-[1.02]">
+                                class="w-full py-3 px-4 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 active:from-brand-700 active:to-brand-600 text-white font-semibold text-base rounded-xl shadow-lg shadow-brand-500/25 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 focus:ring-offset-gray-800 transform hover:scale-[1.02] hover:shadow-xl hover:shadow-brand-500/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:shadow-lg flex items-center justify-center gap-2">
+                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                            </svg>
                             Submit Transcode Job
                         </button>
                     </form>
+                    <p class="mt-4 text-xs text-gray-500 text-center">Jobs are processed asynchronously with real-time progress updates</p>
                 </section>
 
                 <!-- Live Progress Matrix (Right Column) -->
-                <section class="bg-gray-800 rounded-lg border border-gray-700 p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-lg font-semibold text-white">Live Progress Matrix</h2>
-                        <span id="jobs-counter" class="hidden px-2 py-1 text-xs font-medium bg-indigo-500/20 text-indigo-400 rounded-full"></span>
+                <section class="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 p-5 sm:p-6 shadow-xl shadow-black/10 order-1 lg:order-2">
+                    <div class="flex items-center justify-between mb-5 sm:mb-6">
+                        <div class="flex items-center gap-2">
+                            <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-brand-500/10">
+                                <svg class="w-4 h-4 text-brand-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                </svg>
+                            </div>
+                            <h2 class="text-base sm:text-lg font-semibold text-white">Live Progress Matrix</h2>
+                        </div>
+                        <span id="jobs-counter" class="hidden px-2.5 py-1 text-xs font-medium bg-brand-500/15 text-brand-300 rounded-full border border-brand-500/20"></span>
                     </div>
-                    <div id="jobs-container" class="space-y-3 max-h-[500px] overflow-y-auto">
-                        <div id="no-jobs-message" class="text-center py-8">
-                            <svg class="mx-auto h-12 w-12 text-gray-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 4V2m10 2V2M5 8h14M5 8a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2V10a2 2 0 00-2-2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4m-4 4h4" />
-                            </svg>
-                            <p class="text-gray-400 text-sm">No active jobs</p>
-                            <p class="text-gray-500 text-xs mt-1">Submit a transcode request to begin</p>
+                    <div id="jobs-container" class="space-y-3 max-h-[60vh] sm:max-h-[500px] overflow-y-auto scrollbar-thin pr-1">
+                        <div id="no-jobs-message" class="text-center py-12 sm:py-16">
+                            <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gray-700/30 mb-4">
+                                <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                </svg>
+                            </div>
+                            <p class="text-gray-400 text-sm font-medium">No active jobs</p>
+                            <p class="text-gray-500 text-xs mt-1.5 max-w-[200px] mx-auto">Submit a transcode request to see real-time progress here</p>
                         </div>
                     </div>
                 </section>
             </div>
         </main>
+
+        <footer class="mt-auto border-t border-gray-800/50 py-4">
+            <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <p class="text-center text-xs text-gray-500">TransFlow &mdash; Powered by FastAPI &amp; WebSockets</p>
+            </div>
+        </footer>
     </div>
 
     <script>
@@ -589,20 +689,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             existingAlerts.forEach(el => el.remove());
 
             const errorDiv = document.createElement('div');
-            errorDiv.className = 'error-alert bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-md mb-4';
+            errorDiv.className = 'error-alert bg-rose-900/30 border border-rose-700/50 text-rose-200 px-4 py-3 rounded-xl mb-5 backdrop-blur-sm';
 
-            let html = `<div class="flex items-start gap-2">
-                <svg class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div>
-                    <strong class="font-semibold">Validation Error</strong>
-                    <p class="text-sm mt-1">${message}</p>`;
+            let html = `<div class="flex items-start gap-3">
+                <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-rose-500/20 flex-shrink-0">
+                    <svg class="w-4 h-4 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <strong class="font-semibold text-rose-300">Validation Error</strong>
+                    <p class="text-sm mt-1 text-rose-200/80">${message}</p>`;
 
             if (errors && errors.length > 1) {
-                html += '<ul class="list-disc list-inside text-sm mt-2 space-y-1">';
+                html += '<ul class="list-disc list-inside text-sm mt-2 space-y-1 text-rose-200/70">';
                 errors.forEach(err => {
-                    html += `<li><span class="text-red-300">${err.field}:</span> ${err.message}</li>`;
+                    html += `<li><span class="text-rose-300 font-medium">${err.field}:</span> ${err.message}</li>`;
                     showFieldError(err.field, err.message);
                 });
                 html += '</ul>';
@@ -619,43 +721,62 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         function createJobCard(jobId, fileName, targetFormat, targetResolution, submittedAt) {
             const card = document.createElement('div');
             card.id = `job-${jobId}`;
-            card.className = 'bg-gray-700/50 border border-gray-600 rounded-lg p-4 transition-all duration-200';
+            card.className = 'job-card-enter bg-gray-700/30 border border-gray-600/50 rounded-xl p-4 transition-all duration-300 hover:bg-gray-700/40 hover:border-gray-500/50';
             card.innerHTML = `
-                <div class="job-header border-b border-gray-600 pb-3 mb-3">
-                    <div class="flex items-center justify-between mb-1">
-                        <h3 class="text-sm font-semibold text-white truncate" title="${fileName}">${fileName}</h3>
-                        <div class="job-status-badge">
-                            <span class="job-status px-2.5 py-1 text-xs font-semibold rounded-full bg-gray-500/20 text-gray-400">PENDING</span>
+                <div class="job-header pb-3 mb-3 border-b border-gray-600/30">
+                    <div class="flex items-start justify-between gap-3 mb-2">
+                        <div class="flex items-center gap-2 min-w-0 flex-1">
+                            <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-gray-600/30 flex-shrink-0">
+                                <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
+                                </svg>
+                            </div>
+                            <h3 class="text-sm font-semibold text-white truncate" title="${fileName}">${fileName}</h3>
+                        </div>
+                        <div class="job-status-badge flex-shrink-0">
+                            <span class="job-status inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-lg bg-gray-500/20 text-gray-400 transition-colors duration-200">PENDING</span>
                         </div>
                     </div>
-                    <div class="flex items-center gap-2 text-xs text-gray-400">
-                        <span class="font-mono bg-gray-800 px-2 py-0.5 rounded">${jobId.substring(0, 8)}</span>
-                        <span>&middot;</span>
-                        <span class="uppercase font-medium">${targetFormat}</span>
-                        <span>&middot;</span>
-                        <span>${targetResolution}</span>
+                    <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400 ml-10">
+                        <span class="font-mono bg-gray-800/60 px-2 py-0.5 rounded-md text-gray-500">${jobId.substring(0, 8)}</span>
+                        <span class="text-gray-600">&bull;</span>
+                        <span class="inline-flex items-center gap-1 uppercase font-medium text-brand-300">
+                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            ${targetFormat}
+                        </span>
+                        <span class="text-gray-600">&bull;</span>
+                        <span class="text-gray-300">${targetResolution}</span>
                     </div>
                 </div>
                 <div class="job-step-container mb-3">
-                    <div class="flex items-center justify-between text-sm mb-1">
-                        <span class="job-step text-gray-300 font-medium">Queued</span>
-                        <span class="job-progress-text text-gray-400">0%</span>
+                    <div class="flex items-center justify-between text-sm mb-2">
+                        <span class="job-step text-gray-300 font-medium text-sm">Queued</span>
+                        <span class="job-progress-text text-gray-400 font-mono text-xs tabular-nums">0%</span>
                     </div>
-                    <div class="job-progress-container w-full bg-gray-600/80 rounded-full h-3 overflow-hidden shadow-inner">
-                        <div class="job-progress h-3 rounded-full progress-bar-smooth bg-indigo-500" style="width: 0%"></div>
+                    <div class="job-progress-container w-full bg-gray-600/50 rounded-full h-2.5 overflow-hidden shadow-inner">
+                        <div class="job-progress h-2.5 rounded-full progress-bar-smooth bg-brand-500" style="width: 0%"></div>
                     </div>
                 </div>
-                <div class="job-error-container hidden mt-3 p-3 bg-rose-900/20 border border-rose-800/50 rounded-md">
-                    <div class="flex items-start gap-2">
-                        <svg class="w-4 h-4 text-rose-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <div class="job-error-container hidden mt-3 p-3 bg-rose-900/20 border border-rose-700/30 rounded-lg">
+                    <div class="flex items-start gap-2.5">
+                        <div class="flex items-center justify-center w-5 h-5 rounded-full bg-rose-500/20 flex-shrink-0">
+                            <svg class="w-3 h-3 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </div>
+                        <span class="job-error-message text-sm text-rose-300/90 leading-relaxed"></span>
+                    </div>
+                </div>
+                <div class="job-details flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-xs text-gray-500 border-t border-gray-600/30 pt-3 mt-3">
+                    <span class="job-submitted flex items-center gap-1.5">
+                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        <span class="job-error-message text-sm text-rose-300"></span>
-                    </div>
-                </div>
-                <div class="job-details flex items-center justify-between text-xs text-gray-500 border-t border-gray-600 pt-2 mt-2">
-                    <span class="job-submitted">Submitted: ${submittedAt}</span>
-                    <span class="job-id-full font-mono" title="${jobId}">${jobId}</span>
+                        ${submittedAt}
+                    </span>
+                    <span class="job-id-full font-mono text-gray-600 truncate max-w-[180px] sm:max-w-none" title="${jobId}">${jobId}</span>
                 </div>
             `;
             return card;
@@ -677,29 +798,32 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             progressBar.style.width = `${data.progress}%`;
             progressText.textContent = `${data.progress}%`;
 
-            statusBadge.classList.remove('bg-gray-500/20', 'text-gray-400',
-                                         'bg-yellow-500/20', 'text-yellow-400', 'animate-pulse',
-                                         'bg-emerald-500/20', 'text-emerald-400',
-                                         'bg-rose-900/30', 'text-rose-400');
-
-            progressBar.classList.remove('bg-indigo-500', 'progress-processing', 'progress-success', 'progress-failed');
+            card.classList.remove('border-rose-700/40', 'bg-rose-900/10', 'border-emerald-700/30', 'bg-emerald-900/5');
+            statusBadge.classList.remove(
+                'bg-gray-500/20', 'text-gray-400',
+                'bg-amber-500/15', 'text-amber-400', 'animate-pulse',
+                'bg-emerald-500/15', 'text-emerald-400',
+                'bg-rose-500/15', 'text-rose-400'
+            );
+            progressBar.classList.remove('bg-brand-500', 'progress-processing', 'progress-success', 'progress-failed');
 
             if (data.status === 'PENDING') {
                 statusBadge.classList.add('bg-gray-500/20', 'text-gray-400');
-                progressBar.classList.add('bg-indigo-500');
+                progressBar.classList.add('bg-brand-500');
                 errorContainer.classList.add('hidden');
             } else if (data.status === 'PROCESSING') {
-                statusBadge.classList.add('bg-yellow-500/20', 'text-yellow-400', 'animate-pulse');
+                statusBadge.classList.add('bg-amber-500/15', 'text-amber-400', 'animate-pulse');
                 progressBar.classList.add('progress-processing');
                 errorContainer.classList.add('hidden');
             } else if (data.status === 'SUCCESS') {
-                statusBadge.classList.add('bg-emerald-500/20', 'text-emerald-400');
+                statusBadge.classList.add('bg-emerald-500/15', 'text-emerald-400');
                 progressBar.classList.add('progress-success');
+                card.classList.add('border-emerald-700/30', 'bg-emerald-900/5');
                 errorContainer.classList.add('hidden');
             } else if (data.status === 'FAILED') {
-                statusBadge.classList.add('bg-rose-900/30', 'text-rose-400');
+                statusBadge.classList.add('bg-rose-500/15', 'text-rose-400');
                 progressBar.classList.add('progress-failed');
-                card.classList.add('border-rose-800/50');
+                card.classList.add('border-rose-700/40', 'bg-rose-900/10');
                 if (data.error_message) {
                     errorMessage.textContent = data.error_message;
                     errorContainer.classList.remove('hidden');
@@ -922,7 +1046,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 }
             } finally {
                 submitButton.disabled = false;
-                submitButton.textContent = 'Submit Transcode Job';
+                submitButton.innerHTML = `
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    Submit Transcode Job
+                `;
             }
         });
     </script>
